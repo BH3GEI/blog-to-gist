@@ -1,12 +1,14 @@
-# sync_to_gist.py
+# .github/scripts/sync_to_gist.py
 from github import Github, GithubException
 import os
 import json
 import logging
-from pathlib import Path
-from typing import Dict, List
+import requests
+from urllib.parse import quote
+from tenacity import retry, stop_after_attempt, wait_exponential
+from typing import List, Dict
 
-# 配置日志格式
+# 日志配置
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -14,120 +16,144 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def load_blog_list(blog_root: str = "blog") -> List[Dict]:
-    """安全加载博客列表文件"""
-    list_path = Path(blog_root) / "list.json"
+# 常量配置
+BLOG_REPO = "BH3GEI/blog"
+BRANCH = "main"
+LIST_JSON_PATH = "blog/list.json"  # 根据实际路径调整
+MAX_RETRIES = 3
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    before_sleep=lambda _: logger.warning("请求失败，准备重试...")
+)
+def fetch_remote_content(url: str, token: str = None) -> str:
+    """安全获取远程内容（自动重试）"""
+    headers = {"User-Agent": "BlogSync/1.0"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+    
     try:
-        with open(list_path, 'r', encoding='utf-8') as f:
-            if Path(f.name).stat().st_size == 0:
-                raise ValueError("list.json 文件为空")
-            return json.load(f)
-    except FileNotFoundError:
-        logger.error(f"博客列表文件未找到: {list_path.absolute()}")
-        raise
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON 解析错误: {e}")
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        if len(response.content) == 0:
+            raise ValueError("响应内容为空")
+        return response.text
+    except requests.exceptions.RequestException as e:
+        logger.error(f"请求失败: {e.response.status_code if e.response else '无响应'} - {url}")
         raise
 
-def read_post_content(blog_root: str, post_path: str) -> str:
-    """安全读取文章内容"""
-    full_path = Path(blog_root) / post_path
+def generate_raw_url(file_path: str) -> str:
+    """生成GitHub Raw URL（自动编码路径）"""
+    encoded_path = quote(file_path.strip('/'), safe='')
+    return f"https://raw.githubusercontent.com/{BLOG_REPO}/{BRANCH}/{encoded_path}"
+
+def load_blog_list(token: str) -> List[Dict]:
+    """加载远程博客列表"""
+    list_url = generate_raw_url(LIST_JSON_PATH)
+    logger.info(f"正在获取博客列表: {list_url}")
+    
     try:
-        with open(full_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            if not content:
-                raise ValueError(f"文件内容为空: {post_path}")
-            return content
-    except UnicodeDecodeError:
-        logger.error(f"文件编码错误: {post_path}")
-        raise
-    except FileNotFoundError:
-        logger.error(f"文章文件未找到: {full_path.absolute()}")
+        content = fetch_remote_content(list_url, token)
+        data = json.loads(content)
+        
+        # 校验数据结构
+        if not isinstance(data, list):
+            raise ValueError("list.json 应该是一个数组")
+        required_fields = ['title', 'file', 'time']
+        for idx, item in enumerate(data):
+            if not all(field in item for field in required_fields):
+                raise ValueError(f"第 {idx+1} 项缺少必要字段")
+        return data
+    except json.JSONDecodeError:
+        logger.error("JSON解析失败，请检查list.json格式")
         raise
 
 def format_gist_content(title: str, date: str, content: str) -> str:
     """生成带元数据的Gist内容"""
     return f"""# {title}
 
-> 文章发布于 {date}
+> Published on {date}
 
 ---
 
 {content}
 """
 
-def sync_posts_to_gist():
+def sync_to_gist():
     try:
         # 获取环境变量
-        token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
-        if not token:
-            raise EnvironmentError("未找到 GH_TOKEN 或 GITHUB_TOKEN 环境变量")
+        gh_token = os.environ.get('GH_TOKEN')
+        if not gh_token:
+            raise EnvironmentError("缺少 GH_TOKEN 环境变量")
 
         # 初始化GitHub客户端
-        gh = Github(token, timeout=30)  # 设置API超时
+        gh = Github(gh_token, timeout=30)
         user = gh.get_user()
+        logger.info(f"已认证为: {user.login}")
 
-        # 加载博客列表
-        blog_root = os.environ.get('BLOG_ROOT', 'blog')
-        posts = load_blog_list(blog_root)
+        # 获取博客列表
+        posts = load_blog_list(gh_token)
         logger.info(f"成功加载 {len(posts)} 篇文章")
 
-        # 获取现有Gist（分页处理）
-        existing_gists = {}
-        for gist in user.get_gists():
-            if gist.description:
-                existing_gists[gist.description] = gist
+        # 获取现有Gist
+        existing_gists = {gist.description: gist for gist in user.get_gists() if gist.description}
 
         # 处理每篇文章
         success_count = 0
         for idx, post in enumerate(posts, 1):
             try:
-                # 校验必要字段
-                required_fields = ['title', 'file', 'time']
-                if any(field not in post for field in required_fields):
-                    raise ValueError(f"缺失必要字段: {post}")
-
+                # 校验数据
                 title = post['title']
                 date = post['time']
+                file_path = post['file']
                 description = f"📝 {title} | {date}"
+                
+                if not all([title, date, file_path]):
+                    raise ValueError("文章数据不完整")
 
-                # 读取内容
-                content = read_post_content(blog_root, post['file'])
+                # 获取文章内容
+                file_url = generate_raw_url(file_path)
+                logger.debug(f"正在获取: {file_url}")
+                content = fetch_remote_content(file_url, gh_token)
+                
+                # 构建Gist内容
                 full_content = format_gist_content(title, date, content)
+                filename = os.path.basename(file_path)
 
-                # 操作Gist
+                # 同步逻辑
                 if description in existing_gists:
                     gist = existing_gists[description]
-                    # 检查是否有实际修改
                     current_content = next(iter(gist.files.values())).content
+                    
                     if current_content == full_content:
                         logger.info(f"#{idx} [SKIP] 无变化: {title}")
                         continue
                     
                     gist.edit(
                         description=description,
-                        files={Path(post['file']).name: {'content': full_content}}
+                        files={filename: {'content': full_content}}
                     )
-                    logger.info(f"#{idx} [UPDATE] 成功更新: {title}")
+                    logger.info(f"#{idx} [UPDATE] 更新成功: {title}")
                 else:
                     user.create_gist(
                         public=True,
                         description=description,
-                        files={Path(post['file']).name: {'content': full_content}}
+                        files={filename: {'content': full_content}}
                     )
-                    logger.info(f"#{idx} [CREATE] 成功创建: {title}")
+                    logger.info(f"#{idx} [CREATE] 创建成功: {title}")
                 
                 success_count += 1
 
             except Exception as e:
-                logger.error(f"#{idx} 处理文章失败: {str(e)}", exc_info=False)
+                logger.error(f"#{idx} 处理失败: {title} - {str(e)}")
                 continue
 
-        logger.info(f"同步完成: 成功 {success_count}/{len(posts)} 篇")
+        logger.info(f"同步完成: 成功 {success_count}/{len(posts)} 篇文章")
 
     except Exception as e:
         logger.critical(f"致命错误: {str(e)}", exc_info=True)
         raise
 
 if __name__ == "__main__":
-    sync_posts_to_gist()
+    sync_to_gist()
