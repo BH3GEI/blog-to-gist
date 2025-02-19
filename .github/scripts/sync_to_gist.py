@@ -27,7 +27,6 @@ def sync_to_gist():
     g = Github(github_token)
     user = g.get_user()
     
-    # 读取博客文章列表
     with open('blog/list.json', 'r', encoding='utf-8') as f:
         posts = json.load(f)
     
@@ -58,19 +57,19 @@ def sync_to_gist():
                 gist = existing_gists[gist_description]
                 gist.edit(
                     description=gist_description,
-                    files={filename: github.InputFileContent(content_with_meta)}
+                    files={filename: InputFileContent(content_with_meta)}  # 使用导入的 InputFileContent
                 )
                 print(f"Updated: {title}")
             else:
                 user.create_gist(
                     public=True,
                     description=gist_description,
-                    files={filename: github.InputFileContent(content_with_meta)}
+                    files={filename: InputFileContent(content_with_meta)}  # 使用导入的 InputFileContent
                 )
                 print(f"Created: {title}")
                 
         except Exception as e:
             print(f"Error processing {title}: {str(e)}")
-
+            
 if __name__ == "__main__":
     sync_to_gist()
