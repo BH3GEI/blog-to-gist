@@ -1,4 +1,4 @@
-name: Sync Blog to Gist
+name: Blog to Gist Sync (Raw Mode)
 
 on:
   workflow_dispatch:
@@ -9,32 +9,28 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     permissions:
-      contents: read  # 仅允许读取仓库内容
-      gists: write    # 仅允许操作 Gist
+      contents: read  # 仅需基础权限
+      gists: write    # 必须的Gist权限
+
     steps:
-      - name: Checkout sync repo
-        uses: actions/checkout@v3
-        with:
-          path: main-repo
+    - name: Checkout Script Repo
+      uses: actions/checkout@v4
+      with:
+        path: main-repo
 
-      - name: Checkout blog repo
-        uses: actions/checkout@v3
-        with:
-          repository: BH3GEI/blog
-          path: blog
-          ref: main
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'  # 明确指定版本
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install PyGithub==1.59.0 requests==2.31.0 tenacity==8.2.3
 
-      - name: Install dependencies
-        run: pip install PyGithub
-
-      - name: Sync to Gist
-        env:
-          GH_TOKEN: ${{ secrets.GIST_TOKEN }}  # 修改变量名
-        run: |
-          cd main-repo
-          python .github/scripts/sync_to_gist.py
+    - name: Run Sync Script
+      env:
+        GH_TOKEN: ${{ secrets.GIST_TOKEN }}  # 需要 repo 和 gist 权限的PAT
+      run: |
+        cd main-repo
+        python .github/scripts/sync_to_gist.py
