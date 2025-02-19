@@ -1,4 +1,5 @@
 # .github/scripts/sync_to_gist.py
+import github
 from github import Github, GithubException
 import os
 import json
