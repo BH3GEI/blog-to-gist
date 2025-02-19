@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # 常量配置
 BLOG_REPO = "BH3GEI/blog"
 BRANCH = "main"
-LIST_JSON_PATH = "blog/list.json"  # 根据实际路径调整
+LIST_JSON_PATH = "list.json"  # 根据实际路径调整
 MAX_RETRIES = 3
 
 @retry(
