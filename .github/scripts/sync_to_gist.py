@@ -46,8 +46,9 @@ def fetch_remote_content(url: str, token: str = None) -> str:
 
 def generate_raw_url(file_path: str) -> str:
     """生成GitHub Raw URL（自动编码路径）"""
-    encoded_path = quote(file_path.strip('/'), safe='')
+    encoded_path = quote(file_path.strip('/'), safe='/')
     return f"https://raw.githubusercontent.com/{BLOG_REPO}/{BRANCH}/{encoded_path}"
+
 
 def load_blog_list(token: str) -> List[Dict]:
     """加载远程博客列表"""
