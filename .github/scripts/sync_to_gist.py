@@ -2,6 +2,7 @@ import os
 import json
 import requests
 from github import Github
+from github.InputFileContent import InputFileContent 
 from datetime import datetime
 
 def format_gist_description(title, time):
