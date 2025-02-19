@@ -1,4 +1,4 @@
-from github import Github, GithubException
+from github import Github, GithubException, InputFileContent
 import os
 import logging
 
@@ -41,11 +41,11 @@ def test_create_gist():
         filename = "test.md"
         description = f"📝 {test_title} | {test_date}"
 
-        # 创建 Gist
+        # 使用 InputFileContent 包装文件内容
         gist = user.create_gist(
             public=True,
             description=description,
-            files={filename: {'content': full_content}}
+            files={filename: InputFileContent(full_content)}
         )
         logger.info("测试 Gist 创建成功")
         logger.info(f"Gist URL: {gist.html_url}")
@@ -57,7 +57,6 @@ def test_create_gist():
 
 if __name__ == "__main__":
     test_create_gist()
-
 
 # # .github/scripts/sync_to_gist.py
 # import github
