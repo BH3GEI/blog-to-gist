@@ -2,7 +2,7 @@ import os
 import json
 import requests
 from github import Github
-from github.InputFileContent import InputFileContent 
+from github.GistFile import InputFileContent
 from datetime import datetime
 
 def format_gist_description(title, time):
@@ -12,7 +12,6 @@ def format_gist_description(title, time):
 
 def get_post_content(file_path):
     try:
-        # 注意这里的路径前缀改为 blog/
         full_path = os.path.join('blog', file_path)
         with open(full_path, 'r', encoding='utf-8') as f:
             return f.read()
@@ -54,23 +53,25 @@ def sync_to_gist():
 
 {content}"""
             
+            files_dict = {filename: InputFileContent(content_with_meta)}
+            
             if gist_description in existing_gists:
                 gist = existing_gists[gist_description]
                 gist.edit(
                     description=gist_description,
-                    files={filename: InputFileContent(content_with_meta)}  # 使用导入的 InputFileContent
+                    files=files_dict
                 )
                 print(f"Updated: {title}")
             else:
                 user.create_gist(
                     public=True,
                     description=gist_description,
-                    files={filename: InputFileContent(content_with_meta)}  # 使用导入的 InputFileContent
+                    files=files_dict
                 )
                 print(f"Created: {title}")
                 
         except Exception as e:
             print(f"Error processing {title}: {str(e)}")
-            
+
 if __name__ == "__main__":
     sync_to_gist()
