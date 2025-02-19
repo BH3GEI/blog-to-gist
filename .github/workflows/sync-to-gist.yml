@@ -1,0 +1,36 @@
+name: Sync Blog to Gist
+
+on:
+  workflow_dispatch:  # 允许手动触发
+  schedule:
+    - cron: '0 */6 * * *'  # 每6小时运行一次
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sync repo
+        uses: actions/checkout@v3
+
+      - name: Checkout blog repo
+        uses: actions/checkout@v3
+        with:
+          repository: BH3GEI/blog
+          path: blog
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyGithub requests
+
+      - name: Sync to Gist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: |
+          python .github/scripts/sync_to_gist.py
